@@ -25,25 +25,25 @@ os.environ['PYTHONOPTIMIZE'] = '2'
 class Bridge:
     def __init__(self, c):
         self.c = c
-        self.last = {}  # uid -> {name, rid, msg_id}
+        self.last_uid = None
+        self.last_name = None
+        self.last_rid = None
+        self.last_msg_id = None  # Para editar paginación
         self.queue = deque()
-        self.bmap = {}  # (chat, msg, data) -> (orig_msg, row, col, start)
+        self.bmap = {}
         self.rl = {}
         self.pending = None
-        self.lock = asyncio.Lock()
+        self._sent_ids = set()  # IDs ya procesados para evitar duplicados
         
         h = hashlib.md5(c["token"].encode()).hexdigest()[:8]
         self.bot = TelegramClient(f'b_{c["name"]}_{h}', API_ID, API_HASH, retry_delay=3, auto_reconnect=True, timeout=15)
         self.usr = TelegramClient(StringSession(c["session"]), API_ID, API_HASH, retry_delay=3, auto_reconnect=True, timeout=15)
 
     def clean(self):
-        now = time.time()
-        for k in list(self.last.keys()):
-            if now - self.last[k].get('t', 0) > 300: del self.last[k]
+        if len(self._sent_ids) > 100:
+            self._sent_ids = set(list(self._sent_ids)[-50:])
         if len(self.bmap) > 5000:
             for k in list(self.bmap.keys())[:2500]: del self.bmap[k]
-        if self.c.get("gpt") and len(self.queue) > 50:
-            for _ in range(25): self.queue.popleft()
         gc.collect()
 
     def ok(self, uid):
@@ -65,69 +65,11 @@ class Bridge:
         txt = re.sub(r'\n\s*\n\s*\n', '\n\n', txt)
         return txt.strip()
 
-    async def handle_msg(self, m, uid):
-        """Procesa UN mensaje - sin duplicados"""
-        txt = m.text or ''
-        
-        # GPT
-        if self.c.get("gpt"):
-            if self.queue and txt:
-                _, name, rid = self.queue.popleft()
-                await self.bot.send_message(GRUPO, f"🤖 **{name}:**\n\n{self.fix(txt)[:2000]}", reply_to=rid)
-            return
-        
-        if uid not in self.last: return
-        name = self.last[uid]['name']
-        rid = self.last[uid]['rid']
-        
-        # Apple archivo pendiente
-        if self.c["name"] == "B6" and self.pending and m.media and not m.photo:
-            puid, pname, prid = self.pending
-            self.pending = None
-            cap = self.fix(txt) + "\n\n❤️ @BuddyMovies_Bot"
-            sent = await self.usr.send_file(CANAL, m.media, caption=cap)
-            link = f"https://t.me/{CANAL[1:]}/{sent.id}"
-            await self.bot.send_message(GRUPO, f"🎬 **{pname}**\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=prid)
-            return
-        
-        # ARCHIVO -> siempre al canal y luego link al grupo
-        if m.media:
-            raw = self.fix(txt)
-            if self.c["name"] in ["B4","B5"]: raw += f"\n\n➠ @BuddyMovies_official\n➠ @BuddyMovies_Bot"
-            elif self.c["name"] == "B6": raw += "\n\n❤️ @BuddyMovies_Bot"
-            sent = await self.usr.send_file(CANAL, m.media, caption=raw)
-            link = f"https://t.me/{CANAL[1:]}/{sent.id}"
-            title = raw.split('\n')[0][:80] if raw else "Archivo"
-            await self.bot.send_message(GRUPO, f"🎬 **{name}**\n📁 {title}\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=rid, link_preview=False)
-            return
-        
-        # TEXTO CON BOTONES -> editar si ya existe, si no crear
-        if txt and m.buttons and len(txt) > 15:
-            clean = self.fix(txt)
-            if not clean: return
-            btns = self.build_btns(m)
-            
-            # Si ya hay un mensaje previo de esta búsqueda, EDITAR
-            if 'msg_id' in self.last[uid]:
-                try:
-                    await self.bot.edit_message(GRUPO, self.last[uid]['msg_id'], clean[:4000], buttons=btns)
-                    # Actualizar bmap para el mensaje editado
-                    self.update_bmap(m, GRUPO, self.last[uid]['msg_id'])
-                    return
-                except:
-                    pass
-            
-            # Si no, crear nuevo
-            sent = await self.bot.send_message(GRUPO, clean[:4000], buttons=btns, reply_to=rid)
-            self.last[uid]['msg_id'] = sent.id
-            self.update_bmap(m, sent.chat_id, sent.id)
-
     def build_btns(self, msg):
-        """Construye botones con datos inline para paginación"""
         if not msg or not msg.buttons: return None
         out = []
-        block = ['terabox', 'LfvtadGw', 'CM_Zone']
         skip = ['compartir bot', 'añadir a grupo', 'menú principal', 'share bot', 'add to group', 'main menu']
+        block = ['terabox', 'LfvtadGw', 'CM_Zone']
         
         for row in msg.buttons:
             r = []
@@ -141,12 +83,14 @@ class Bridge:
                         sd = parse_qs(urlparse(btn.url).query).get('start', [''])[0]
                         if sd:
                             fd = f"s_{sd[:30]}"
+                            self.bmap[fd] = (msg.id, msg.buttons.index(row), row.index(btn), sd)
                             r.append(Button.inline(t[:50] or '📥', fd))
                         continue
                     if self.c["name"] in ["B4","B5","B6"]: continue
                     r.append(Button.url(t[:50], btn.url))
                 elif btn.data:
                     d = btn.data.decode() if isinstance(btn.data, bytes) else btn.data
+                    self.bmap[d] = (msg.id, msg.buttons.index(row), row.index(btn), None)
                     if t in ['\u200b', '\u200b ']:
                         ds = str(btn.data)
                         t = '🌐' if 'lang' in ds else '🎞️' if 'qual' in ds else '▶️' if 'next' in ds or 'nxt' in ds else '📄' if 'pgkb' in ds else '▫️'
@@ -154,19 +98,60 @@ class Bridge:
             if r: out.append(r)
         return out or None
 
-    def update_bmap(self, msg, chat, mid):
-        """Guarda referencias de botones para clicks"""
-        if not msg or not msg.buttons: return
-        for ri, row in enumerate(msg.buttons):
-            for bi, btn in enumerate(row):
-                if btn.data:
-                    d = btn.data.decode() if isinstance(btn.data, bytes) else btn.data
-                    self.bmap[(chat, mid, d)] = (msg.id, ri, bi, None)
-                elif btn.url and self.c["name"] == "B5" and 'start=' in btn.url:
-                    sd = parse_qs(urlparse(btn.url).query).get('start', [''])[0]
-                    if sd:
-                        fd = f"s_{sd[:30]}"
-                        self.bmap[(chat, mid, fd)] = (msg.id, ri, bi, sd)
+    async def send_or_edit(self, msg, is_edit=False):
+        """Envía o edita UN solo mensaje, sin duplicar"""
+        if msg.id in self._sent_ids: return
+        self._sent_ids.add(msg.id)
+        
+        txt = msg.text or ''
+        
+        # GPT
+        if self.c.get("gpt"):
+            if self.queue and txt:
+                _, name, rid = self.queue.popleft()
+                await self.bot.send_message(GRUPO, f"🤖 **{name}:**\n\n{self.fix(txt)[:2000]}", reply_to=rid)
+            return
+        
+        if not self.last_uid: return
+        
+        # Apple archivo pendiente
+        if self.c["name"] == "B6" and self.pending and msg.media and not msg.photo:
+            puid, pname, prid = self.pending
+            self.pending = None
+            cap = self.fix(txt) + "\n\n❤️ @BuddyMovies_Bot"
+            sent = await self.usr.send_file(CANAL, msg.media, caption=cap)
+            link = f"https://t.me/{CANAL[1:]}/{sent.id}"
+            await self.bot.send_message(GRUPO, f"🎬 **{pname}**\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=prid)
+            return
+        
+        # ARCHIVO
+        if msg.media:
+            raw = self.fix(txt)
+            if self.c["name"] in ["B4","B5"]: raw += f"\n\n➠ @BuddyMovies_official\n➠ @BuddyMovies_Bot"
+            elif self.c["name"] == "B6": raw += "\n\n❤️ @BuddyMovies_Bot"
+            sent = await self.usr.send_file(CANAL, msg.media, caption=raw)
+            link = f"https://t.me/{CANAL[1:]}/{sent.id}"
+            title = raw.split('\n')[0][:80] if raw else "Archivo"
+            await self.bot.send_message(GRUPO, f"🎬 **{self.last_name}**\n📁 {title}\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=self.last_rid, link_preview=False)
+            return
+        
+        # TEXTO CON BOTONES
+        if txt and msg.buttons:
+            clean = self.fix(txt)
+            if not clean: return
+            btns = self.build_btns(msg)
+            
+            # EDITAR si es paginación
+            if is_edit and self.last_msg_id:
+                try:
+                    await self.bot.edit_message(GRUPO, self.last_msg_id, clean[:4000], buttons=btns)
+                    return
+                except:
+                    pass
+            
+            # CREAR nuevo
+            sent = await self.bot.send_message(GRUPO, clean[:4000], buttons=btns, reply_to=self.last_rid)
+            self.last_msg_id = sent.id
 
     async def on_new(self, event):
         self.clean()
@@ -179,46 +164,22 @@ class Bridge:
         if any(x in txt.lower() for x in ['buscando','espera','recuerda','ayúdanos','compártelo','gracias','procesando','maldito','comparte','revisa','save the file','will be deleted','select language','please wait']): return
         if re.search(r'no\s+(se\s+encontr|results?|found|available)', txt, re.IGNORECASE): return
         
-        # Buscar el último usuario que hizo búsqueda
-        if self.last:
-            uid = list(self.last.keys())[-1]
-            await self.handle_msg(m, uid)
+        await self.send_or_edit(m, is_edit=False)
 
     async def on_edit(self, event):
-        """EDIT del bot fuente -> editar en grupo también"""
         self.clean()
         m = event.message
         sid = self.c.get("sid")
         if sid and m.sender_id != sid: return
-        if not sid and (not m.sender or not m.sender.bot): return
+        if not sid and (not m.sender or not m.sender.bot or not m.text): return
         
         txt = m.text or ''
         if any(x in txt.lower() for x in ['buscando','espera','procesando','please wait']): return
         if re.search(r'no\s+(se\s+encontr|results?|found|available)', txt, re.IGNORECASE): return
         if not txt or not m.buttons: return
         
-        # Buscar último usuario
-        if not self.last: return
-        uid = list(self.last.keys())[-1]
-        
-        clean = self.fix(txt)
-        if not clean: return
-        btns = self.build_btns(m)
-        
-        # Si hay mensaje previo, EDITAR (paginación)
-        if uid in self.last and 'msg_id' in self.last[uid]:
-            try:
-                await self.bot.edit_message(GRUPO, self.last[uid]['msg_id'], clean[:4000], buttons=btns)
-                self.update_bmap(m, GRUPO, self.last[uid]['msg_id'])
-                return
-            except:
-                pass
-        
-        # Si no, crear nuevo
-        if uid in self.last:
-            sent = await self.bot.send_message(GRUPO, clean[:4000], buttons=btns, reply_to=self.last[uid]['rid'])
-            self.last[uid]['msg_id'] = sent.id
-            self.update_bmap(m, sent.chat_id, sent.id)
+        # EDITAR mensaje existente (paginación)
+        await self.send_or_edit(m, is_edit=True)
 
     async def on_msg(self, event):
         self.clean()
@@ -233,7 +194,11 @@ class Bridge:
         try: name = (await event.get_sender()).first_name or "Usuario"
         except: name = "Usuario"
         
-        self.last[event.sender_id] = {'name': name, 'rid': event.message.id, 't': time.time()}
+        self.last_uid = event.sender_id
+        self.last_name = name
+        self.last_rid = event.message.id
+        self.last_msg_id = None  # Reset para nueva búsqueda
+        self._sent_ids.clear()   # Limpiar IDs de búsqueda anterior
         
         if self.c.get("gpt"):
             self.queue.append((event.sender_id, name, event.message.id))
@@ -244,20 +209,15 @@ class Bridge:
         data = event.data.decode() if isinstance(event.data, bytes) else event.data
         if not data: return
         
-        key = (event.chat_id, event.message_id, data)
-        
-        # Buscar en caché
-        if key in self.bmap:
-            info = self.bmap[key]
+        if data in self.bmap:
+            info = self.bmap[data]
             if len(info) > 3 and info[3]:  # start_param
                 await event.answer("⚡")
                 await self.usr.send_message(self.c["source"], f"/start {info[3]}")
                 return
             
-            if self.c["name"] == "B6":
-                for uid, v in self.last.items():
-                    self.pending = (uid, v['name'], v['rid'])
-                    break
+            if self.c["name"] == "B6" and self.last_uid:
+                self.pending = (self.last_uid, self.last_name, self.last_rid)
             
             try:
                 msgs = await self.usr.get_messages(self.c["source"], ids=[info[0]])
@@ -267,7 +227,7 @@ class Bridge:
                     return
             except: pass
         
-        # Fallback: buscar en mensajes recientes
+        # Fallback
         try:
             async for m in self.usr.iter_messages(self.c["source"], limit=50):
                 if m.buttons:
@@ -275,7 +235,7 @@ class Bridge:
                         for bi, btn in enumerate(row):
                             bd = btn.data.decode() if isinstance(btn.data, bytes) else btn.data
                             if bd == data:
-                                self.bmap[(event.chat_id, event.message_id, data)] = (m.id, ri, bi, None)
+                                self.bmap[data] = (m.id, ri, bi, None)
                                 await event.answer("⚡")
                                 await btn.click()
                                 return
