@@ -9,7 +9,7 @@ API_ID = 28074212
 API_HASH = "b18dae908474a377684922f3e9d5b795"
 CANAL = "@BuddyMovies_canal"
 GRUPO = "@BuddyMovies_official"
-FOOTER = "\n\n➠ @BuddyMovies_official\n➠ @BuddyMovies_Bot"
+FOOTER = "\n\n❤️ @BuddyMovies_Bot"
 
 BRIDGES = [
     {"name":"B1","token":"8984212389:AAFZMh_ZQZm8DlIqPLvQEljnC1UPVtRJV-Q","session":"1AZWarzgBu13W0EuNpoxKErbi-sroDDYq6ZWDiIaNcoKjzWrZ5J5uXknAAh-Pq7cgtT-GrhwS5rcoWmzXj5B1EsOIQsFR5qxzoJLAXUPvtEOd8eaV4BsSXyF3G8jRAPqGmbjx7FjepBwg6_TYIDUqeA6CSrkhlSIkNZ-YhTyScCvUoT_0gIQazF4KCC7jsFo1FMxQEPPgJJ3WB0QgRoHqojHEAeJ6MVxcTFmucaQKfjTkrBIlTiQdlHAJzwq7jvOd9c10TUurK0YWPgxfcCE_orEcz_CMhURbK7gJ1kSKHFx-jf3a6MGhzWclKLOkuuizGmOSJnzEkgmfIntIE_Ig3qr2qcbFgno=","source":"@pooppuuui","sid":None,"prefix":"/search "},
@@ -230,6 +230,8 @@ class Bridge:
         
         # Buscar en button_map por clave (msg_id, data)
         key = (event.message_id, data)
+        # También buscar sin msg_id
+        info = self.bmap.get(key) or self.bmap.get(data)
         info = None
         if key in self.button_map:
             info = self.button_map[key]
