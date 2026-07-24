@@ -1,5 +1,5 @@
 import asyncio, re, os, threading, gc, time, urllib.request
-from collections import OrderedDict, deque
+from collections import deque
 from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -10,6 +10,7 @@ API_HASH = "b18dae908474a377684922f3e9d5b795"
 SESSION = "1AZWarzMBuySWi9yMDi6czcZfBDTzaKK3BDAlidU1GSz-nFSaeCpW5SGGb16ga5yYTzCYng9LqSjkL_o2ijHJ69OjJfGcd2i6zM3qcG5O6mG03ommmMXEvJX7HTz0aXtlyR_RCda2SOJf6tq1_GaCdcQBylFdnYcpDl08LZoey8xnZil0afhD1IjFpghUIC1Iha4qoGdZ-D-PFxZfDP2F5tBN0mtouIlxachP4D2jtoprgoqNV53k7HO_WK4opkpQa6EXz0CHGtQsDk1Tj5xwWAL4CVA00YNetysKLCj1rtg4vk5NqY4mx7ZeOcD_2ZmBbS5nMkVc2OvVmprh81ijv4IoN2BaDrU="
 CANAL = "@BuddyMovies_canal"
 GRUPO = "@BuddyMovies_official"
+FOOTER = "\n\n➠ @BuddyMovies_official\n➠ @BuddyMovies_Bot"
 
 BRIDGES = [
     {"name":"B1_BuddyMovies","token":"8984212389:AAFZMh_ZQZm8DlIqPLvQEljnC1UPVtRJV-Q","source":"@pooppuuui","sid":None,"prefix":"/search "},
@@ -25,9 +26,9 @@ os.environ['PYTHONOPTIMIZE'] = '2'
 gc.set_threshold(5000, 50, 50)
 
 class Bridge:
-    def __init__(self, c, usr_client):
+    def __init__(self, c, usr):
         self.c = c
-        self.usr = usr_client  # COMPARTIDO
+        self.usr = usr
         self.last_uid = None
         self.last_name = None
         self.last_rid = None
@@ -37,7 +38,6 @@ class Bridge:
         self.rl = {}
         self.pending = None
         self._sent = set()
-        
         self.bot = TelegramClient(f'b_{c["name"]}', API_ID, API_HASH, retry_delay=3, auto_reconnect=True, timeout=15)
 
     def clean(self):
@@ -100,7 +100,6 @@ class Bridge:
         self._sent.add(msg.id)
         txt = msg.text or ''
         
-        # ChatGPT
         if self.c.get("gpt"):
             if self.queue and txt:
                 _, name, rid = self.queue.popleft()
@@ -109,39 +108,40 @@ class Bridge:
         
         if not self.last_uid: return
         
-        # Apple pending
+        # Apple pending file
         if self.c["name"]=="B6_Apple" and self.pending and msg.media and not msg.photo:
             uid, name, rid = self.pending
             self.pending = None
-            cap = self.fix(txt) + "\n\n❤️ @BuddyMovies_Bot"
+            cap = self.fix(txt) + FOOTER
             sent = await self.usr.send_file(CANAL, msg.media, caption=cap)
             link = f"https://t.me/{CANAL[1:]}/{sent.id}"
             await self.bot.send_message(GRUPO, f"🎬 **{name}**\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=rid)
             return
         
-        # Archivo
+        # ARCHIVO: subir al canal con FOOTER, luego enviar link al grupo
         if msg.media:
-            raw = self.fix(txt)
-            if self.c["name"] in ["B4_LtMovie","B5_Angela"]: raw += f"\n\n➠ @BuddyMovies_official\n➠ @BuddyMovies_Bot"
-            elif self.c["name"]=="B6_Apple": raw += "\n\n❤️ @BuddyMovies_Bot"
+            raw = self.fix(txt) + FOOTER
             sent = await self.usr.send_file(CANAL, msg.media, caption=raw)
             link = f"https://t.me/{CANAL[1:]}/{sent.id}"
             title = raw.split('\n')[0][:80] if raw else "Archivo"
             await self.bot.send_message(GRUPO, f"🎬 **{self.last_name}**\n📁 {title}\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=self.last_rid, link_preview=False)
             return
         
-        # Texto con botones
+        # TEXTO CON BOTONES: editar si existe, si no crear nuevo
         if txt and msg.buttons:
             clean = self.fix(txt)
             if not clean: return
             b = self.btns(msg)
             
-            if is_edit and self.last_msg_id:
+            # EDITAR mensaje existente (paginación)
+            if self.last_msg_id:
                 try:
                     await self.bot.edit_message(GRUPO, self.last_msg_id, clean[:4000], buttons=b)
                     return
-                except: pass
+                except:
+                    pass
             
+            # CREAR nuevo
             sent = await self.bot.send_message(GRUPO, clean[:4000], buttons=b, reply_to=self.last_rid)
             self.last_msg_id = sent.id
 
@@ -190,14 +190,19 @@ class Bridge:
     async def handle_click(self, event):
         data = event.data.decode() if isinstance(event.data, bytes) else event.data
         if not data: return
+        
         if data in self.bmap:
             info = self.bmap[data]
+            # start_param (Angela)
             if len(info) > 3 and info[3]:
                 await event.answer("⚡")
                 await self.usr.send_message(self.c["source"], f"/start {info[3]}")
                 return
+            
+            # Apple: guardar para recibir archivo
             if self.c["name"]=="B6_Apple" and self.last_uid:
                 self.pending = (self.last_uid, self.last_name, self.last_rid)
+            
             try:
                 msgs = await self.usr.get_messages(self.c["source"], ids=[info[0]])
                 if msgs and msgs[0].buttons:
@@ -205,7 +210,8 @@ class Bridge:
                     await msgs[0].buttons[info[1]][info[2]].click()
                     return
             except: pass
-        # fallback
+        
+        # Fallback: buscar en últimos mensajes
         try:
             async for m in self.usr.iter_messages(self.c["source"], limit=50):
                 if m.buttons:
@@ -214,8 +220,11 @@ class Bridge:
                             bd = btn.data.decode() if isinstance(btn.data, bytes) else btn.data
                             if bd == data:
                                 self.bmap[data] = (m.id, ri, bi, None)
-                                await event.answer("⚡"); await btn.click(); return
+                                await event.answer("⚡")
+                                await btn.click()
+                                return
         except: pass
+        
         await event.answer("⏳ Expiró")
 
     async def start(self):
@@ -228,25 +237,19 @@ class Bridge:
 
 async def main():
     print(f"🚀 Iniciando {len(BRIDGES)} bridges...")
-    
-    # UN SOLO cliente usuario para todos
     usr = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
     await usr.start()
     print("✅ Sesión de usuario conectada")
     
     bridges = [Bridge(c, usr) for c in BRIDGES]
-    
-    # Iniciar todos los bots
     await asyncio.gather(*[b.start() for b in bridges])
     
-    # Heartbeat
     async def hb():
         while True:
             await asyncio.sleep(180)
             try: await usr.get_me()
             except: pass
     asyncio.create_task(hb())
-    
     await asyncio.Event().wait()
 
 class H(BaseHTTPRequestHandler):
