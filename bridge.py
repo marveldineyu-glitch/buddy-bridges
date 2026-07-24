@@ -13,26 +13,22 @@ GRUPO = "@BuddyMovies_official"
 FOOTER = "\n\n➠ @BuddyMovies_official\n➠ @BuddyMovies_Bot"
 
 BRIDGES = [
-    {"name":"B1_BuddyMovies","token":"8984212389:AAFZMh_ZQZm8DlIqPLvQEljnC1UPVtRJV-Q","source":"@pooppuuui","sid":None,"prefix":"/search "},
-    {"name":"B2_BuddyNotify","token":"8463069047:AAGeZg0IQd-1-Mv3ubxqnwZY1oJgxio9hr8","source":"@TlgramMovieSearch_Bot","sid":None,"prefix":""},
-    {"name":"B3_AutoFilter","token":"7690330806:AAFAemkor12n71UAPaoJcnAcnPI_R_Xqygs","source":"@AutoFilter_Robot","sid":None,"prefix":""},
-    {"name":"B4_LtMovie","token":"8808014809:AAEacf05HWO2g4HFWDTlP8IC6lXMBxILqbM","source":"@Lt_Moviebot","sid":8504453537,"prefix":""},
-    {"name":"B5_Angela","token":"8894814453:AAGAuF3cjETqYt_mY2os9raZgMxSZtFqD_E","source":"@Angela2_moviebot","sid":8143714699,"prefix":""},
-    {"name":"B6_Apple","token":"8760379291:AAHHIOGgqTJT0IINcM4dNV2bOYDXHfV0r7I","source":"@Apple_moviebot","sid":8104769075,"prefix":""},
-    {"name":"B7_ChatGPT","token":"8952066629:AAHLnoIl62kY0wf4XrFWKiiDq9UaNbjk9zE","source":"@gpt3ru_chat_bot","sid":6157862059,"prefix":"","gpt":True}
+    {"name":"B1","token":"8984212389:AAFZMh_ZQZm8DlIqPLvQEljnC1UPVtRJV-Q","source":"@pooppuuui","sid":None,"prefix":"/search "},
+    {"name":"B2","token":"8463069047:AAGeZg0IQd-1-Mv3ubxqnwZY1oJgxio9hr8","source":"@TlgramMovieSearch_Bot","sid":None,"prefix":""},
+    {"name":"B3","token":"7690330806:AAFAemkor12n71UAPaoJcnAcnPI_R_Xqygs","source":"@AutoFilter_Robot","sid":None,"prefix":""},
+    {"name":"B4","token":"8808014809:AAEacf05HWO2g4HFWDTlP8IC6lXMBxILqbM","source":"@Lt_Moviebot","sid":8504453537,"prefix":""},
+    {"name":"B5","token":"8894814453:AAGAuF3cjETqYt_mY2os9raZgMxSZtFqD_E","source":"@Angela2_moviebot","sid":8143714699,"prefix":""},
+    {"name":"B6","token":"8760379291:AAHHIOGgqTJT0IINcM4dNV2bOYDXHfV0r7I","source":"@Apple_moviebot","sid":8104769075,"prefix":""},
+    {"name":"B7","token":"8952066629:AAHLnoIl62kY0wf4XrFWKiiDq9UaNbjk9zE","source":"@gpt3ru_chat_bot","sid":6157862059,"prefix":"","gpt":True}
 ]
 
 os.environ['PYTHONOPTIMIZE'] = '2'
-gc.set_threshold(5000, 50, 50)
 
 class Bridge:
     def __init__(self, c, usr):
         self.c = c
         self.usr = usr
-        self.last_uid = None
-        self.last_name = None
-        self.last_rid = None
-        self.last_msg_id = None
+        self.last = {}  # uid -> {name, rid, msg_id}
         self.queue = deque()
         self.bmap = {}
         self.rl = {}
@@ -41,6 +37,9 @@ class Bridge:
         self.bot = TelegramClient(f'b_{c["name"]}', API_ID, API_HASH, retry_delay=3, auto_reconnect=True, timeout=15)
 
     def clean(self):
+        now = time.time()
+        for k in list(self.last.keys()):
+            if now - self.last[k].get('t',0) > 300: del self.last[k]
         if len(self._sent) > 200: self._sent.clear()
         if len(self.bmap) > 3000:
             for k in list(self.bmap.keys())[:1500]: del self.bmap[k]
@@ -57,10 +56,15 @@ class Bridge:
 
     def fix(self, txt):
         if not txt: return ""
+        # Eliminar TODOS los enlaces
         txt = re.sub(r'https?://\S+', '', txt)
+        # Eliminar TODAS las menciones
         txt = re.sub(r'@\w+', '', txt)
-        txt = re.sub(r'(?i).*(update|auto.delete|copyright|save.the.file|will.be.deleted|join.|share.bot).*', '', txt)
-        txt = re.sub(r'Hey \*\*.*?\*\*!?', '', txt)
+        # Eliminar frases de copyright/auto-delete/etc
+        txt = re.sub(r'(?i).*(update|auto.delete|copyright|save.the.file|will.be.deleted|join.|share.bot|this message|ᴛʜɪs ᴍᴇssᴀɢᴇ).*', '', txt)
+        # Eliminar "Hey **Nombre**"
+        txt = re.sub(r'(?i).*\*?hey\*?\s*\*?.*?\*?\s*!?.*', '', txt)
+        # Traducciones
         txt = txt.replace('Search Query:','🔍').replace('Total Results:','📊').replace('Page:','📄')
         txt = re.sub(r'\n\s*\n\s*\n', '\n\n', txt)
         return txt.strip()
@@ -76,14 +80,14 @@ class Bridge:
                 if t.lower() in skip: continue
                 if btn.url:
                     if any(b in (btn.url or '') for b in block): continue
-                    if self.c["name"]=="B5_Angela" and 'start=' in btn.url:
+                    if self.c["name"]=="B5" and 'start=' in btn.url:
                         sd = parse_qs(urlparse(btn.url).query).get('start',[''])[0]
                         if sd:
                             fd = f"s_{sd[:30]}"
                             self.bmap[fd] = (msg.id, msg.buttons.index(row), row.index(btn), sd)
                             r.append(Button.inline(t[:50] or '📥', fd))
                         continue
-                    if self.c["name"] in ["B4_LtMovie","B5_Angela","B6_Apple"]: continue
+                    if self.c["name"] in ["B4","B5","B6"]: continue
                     r.append(Button.url(t[:50], btn.url))
                 elif btn.data:
                     d = btn.data.decode() if isinstance(btn.data, bytes) else btn.data
@@ -95,57 +99,72 @@ class Bridge:
             if r: out.append(r)
         return out or None
 
-    async def send_or_edit(self, msg, is_edit=False):
+    async def process(self, msg, is_edit=False):
         if msg.id in self._sent: return
         self._sent.add(msg.id)
         txt = msg.text or ''
         
+        # GPT
         if self.c.get("gpt"):
             if self.queue and txt:
                 _, name, rid = self.queue.popleft()
-                await self.bot.send_message(GRUPO, f"🤖 **{name}:**\n\n{self.fix(txt)[:2000]}", reply_to=rid)
+                clean = self.fix(txt)
+                await self.bot.send_message(GRUPO, f"🤖 **{name}:**\n\n{clean[:2000]}", reply_to=rid)
             return
         
-        if not self.last_uid: return
+        # Buscar el último usuario que preguntó
+        if not self.last: return
+        uid = list(self.last.keys())[-1]
+        user = self.last[uid]
+        name = user['name']
+        rid = user['rid']
         
-        # Apple pending file
-        if self.c["name"]=="B6_Apple" and self.pending and msg.media and not msg.photo:
-            uid, name, rid = self.pending
+        # Apple pending
+        if self.c["name"]=="B6" and self.pending and msg.media and not msg.photo:
+            puid, pname, prid = self.pending
             self.pending = None
             cap = self.fix(txt) + FOOTER
             sent = await self.usr.send_file(CANAL, msg.media, caption=cap)
             link = f"https://t.me/{CANAL[1:]}/{sent.id}"
-            await self.bot.send_message(GRUPO, f"🎬 **{name}**\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=rid)
+            await self.bot.send_message(GRUPO, f"🎬 **{pname}**\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=prid)
             return
         
-        # ARCHIVO: subir al canal con FOOTER, luego enviar link al grupo
+        # ARCHIVO
         if msg.media:
             raw = self.fix(txt) + FOOTER
             sent = await self.usr.send_file(CANAL, msg.media, caption=raw)
             link = f"https://t.me/{CANAL[1:]}/{sent.id}"
             title = raw.split('\n')[0][:80] if raw else "Archivo"
-            await self.bot.send_message(GRUPO, f"🎬 **{self.last_name}**\n📁 {title}\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=self.last_rid, link_preview=False)
+            await self.bot.send_message(GRUPO, f"🎬 **{name}**\n📁 {title}\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=rid, link_preview=False)
             return
         
-        # TEXTO CON BOTONES: editar si existe, si no crear nuevo
+        # TEXTO CON BOTONES
         if txt and msg.buttons:
             clean = self.fix(txt)
             if not clean: return
             b = self.btns(msg)
             
-            # EDITAR mensaje existente (paginación)
-            if self.last_msg_id:
+            # EDITAR si es paginación y hay mensaje previo
+            if is_edit and user.get('msg_id'):
                 try:
-                    await self.bot.edit_message(GRUPO, self.last_msg_id, clean[:4000], buttons=b)
+                    await self.bot.edit_message(GRUPO, user['msg_id'], clean[:4000], buttons=b)
                     return
                 except:
                     pass
             
-            # CREAR nuevo
-            sent = await self.bot.send_message(GRUPO, clean[:4000], buttons=b, reply_to=self.last_rid)
-            self.last_msg_id = sent.id
+            # CREAR o EDITAR
+            if user.get('msg_id'):
+                try:
+                    await self.bot.edit_message(GRUPO, user['msg_id'], clean[:4000], buttons=b)
+                    return
+                except:
+                    sent = await self.bot.send_message(GRUPO, clean[:4000], buttons=b, reply_to=rid)
+                    user['msg_id'] = sent.id
+            else:
+                sent = await self.bot.send_message(GRUPO, clean[:4000], buttons=b, reply_to=rid)
+                user['msg_id'] = sent.id
 
-    async def handle_new(self, event):
+    async def on_new(self, event):
         self.clean()
         m = event.message
         sid = self.c.get("sid")
@@ -154,9 +173,9 @@ class Bridge:
         txt = m.text or ''
         if any(x in txt.lower() for x in ['buscando','espera','recuerda','ayúdanos','compártelo','gracias','procesando','maldito','comparte','revisa','save the file','will be deleted','select language','please wait']): return
         if re.search(r'no\s+(se\s+encontr|results?|found|available)', txt, re.IGNORECASE): return
-        await self.send_or_edit(m, is_edit=False)
+        await self.process(m, is_edit=False)
 
-    async def handle_edit(self, event):
+    async def on_edit(self, event):
         self.clean()
         m = event.message
         sid = self.c.get("sid")
@@ -166,9 +185,9 @@ class Bridge:
         if any(x in txt.lower() for x in ['buscando','espera','procesando','please wait']): return
         if re.search(r'no\s+(se\s+encontr|results?|found|available)', txt, re.IGNORECASE): return
         if not txt or not m.buttons: return
-        await self.send_or_edit(m, is_edit=True)
+        await self.process(m, is_edit=True)
 
-    async def handle_msg(self, event):
+    async def on_msg(self, event):
         self.clean()
         if event.is_private:
             await event.reply("🎬 <b>¡BuddyPelis!</b>\n\n📽️ <b>+5 millones de películas y series</b>\n🔍 Busca sin límites en el grupo\n\n👉 <b>Únete:</b> @BuddyMovies_official", buttons=[[Button.url("🎥 IR AL GRUPO", "https://t.me/BuddyMovies_official")]], link_preview=False)
@@ -177,32 +196,31 @@ class Bridge:
         q = event.text.strip()
         if len(q) < 2 or q.startswith("/"): return
         if not self.ok(event.sender_id): return
+        
         try: name = (await event.get_sender()).first_name or "Usuario"
         except: name = "Usuario"
-        self.last_uid = event.sender_id
-        self.last_name = name
-        self.last_rid = event.message.id
-        self.last_msg_id = None
+        
+        # Guardar datos del usuario que preguntó
+        self.last[event.sender_id] = {'name': name, 'rid': event.message.id, 'msg_id': None, 't': time.time()}
         self._sent.clear()
+        
         if self.c.get("gpt"): self.queue.append((event.sender_id, name, event.message.id))
         await self.usr.send_message(self.c["source"], f"{self.c.get('prefix','')}{q}")
 
-    async def handle_click(self, event):
+    async def on_click(self, event):
         data = event.data.decode() if isinstance(event.data, bytes) else event.data
         if not data: return
         
         if data in self.bmap:
             info = self.bmap[data]
-            # start_param (Angela)
             if len(info) > 3 and info[3]:
                 await event.answer("⚡")
                 await self.usr.send_message(self.c["source"], f"/start {info[3]}")
                 return
-            
-            # Apple: guardar para recibir archivo
-            if self.c["name"]=="B6_Apple" and self.last_uid:
-                self.pending = (self.last_uid, self.last_name, self.last_rid)
-            
+            if self.c["name"]=="B6":
+                for uid, v in self.last.items():
+                    self.pending = (uid, v['name'], v['rid'])
+                    break
             try:
                 msgs = await self.usr.get_messages(self.c["source"], ids=[info[0]])
                 if msgs and msgs[0].buttons:
@@ -211,7 +229,7 @@ class Bridge:
                     return
             except: pass
         
-        # Fallback: buscar en últimos mensajes
+        # Fallback
         try:
             async for m in self.usr.iter_messages(self.c["source"], limit=50):
                 if m.buttons:
@@ -229,21 +247,19 @@ class Bridge:
 
     async def start(self):
         await self.bot.start(bot_token=self.c["token"])
-        self.usr.add_event_handler(self.handle_new, events.NewMessage(chats=self.c["source"]))
-        self.usr.add_event_handler(self.handle_edit, events.MessageEdited(chats=self.c["source"]))
-        self.bot.add_event_handler(self.handle_msg, events.NewMessage)
-        self.bot.add_event_handler(self.handle_click, events.CallbackQuery)
+        self.usr.add_event_handler(self.on_new, events.NewMessage(chats=self.c["source"]))
+        self.usr.add_event_handler(self.on_edit, events.MessageEdited(chats=self.c["source"]))
+        self.bot.add_event_handler(self.on_msg, events.NewMessage)
+        self.bot.add_event_handler(self.on_click, events.CallbackQuery)
         print(f"✅ {self.c['name']} listo")
 
 async def main():
     print(f"🚀 Iniciando {len(BRIDGES)} bridges...")
     usr = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
     await usr.start()
-    print("✅ Sesión de usuario conectada")
-    
+    print("✅ Sesión conectada")
     bridges = [Bridge(c, usr) for c in BRIDGES]
     await asyncio.gather(*[b.start() for b in bridges])
-    
     async def hb():
         while True:
             await asyncio.sleep(180)
@@ -257,7 +273,6 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
 threading.Thread(target=lambda: HTTPServer(("0.0.0.0", int(os.environ.get("PORT",10000))), H).serve_forever(), daemon=True).start()
-
 def ka():
     while True:
         time.sleep(600)
