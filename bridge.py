@@ -142,7 +142,7 @@ class Bridge:
         if self.c["name"] == "B6" and self.pending and m.media and not m.photo:
             puid, pname, prid = self.pending
             self.pending = None
-            cap = self.fix(txt) + "\n\n❤️ @BuddyMovies_Bot"
+            cap = self.fix(txt, s['name']) + "\n\n❤️ @BuddyMovies_Bot"
             sent = await self.usr.send_file(CANAL, m.media, caption=cap)
             link = f"https://t.me/{CANAL[1:]}/{sent.id}"
             await self.bot.send_message(GRUPO, f"🎬 **{pname}**\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=prid)
@@ -150,7 +150,7 @@ class Bridge:
         
         # ARCHIVO
         if m.media:
-            raw = self.fix(txt) + FOOTER
+            raw = self.fix(txt, s['name']) + FOOTER
             sent = await self.usr.send_file(CANAL, m.media, caption=raw)
             link = f"https://t.me/{CANAL[1:]}/{sent.id}"
             title = raw.split('\n')[0][:80] if raw else "Archivo"
@@ -159,7 +159,7 @@ class Bridge:
         
         # TEXTO CON BOTONES
         if txt and m.buttons:
-            clean = self.fix(txt)
+            clean = self.fix(txt, s['name'])
             if not clean: return
             
             # EDITAR si ya existe
@@ -188,7 +188,7 @@ class Bridge:
         if re.search(r'no\s+(se\s+encontr|results?|found|available)', txt, re.IGNORECASE): return
         if not txt or not m.buttons: return
         
-        clean = self.fix(txt)
+        clean = self.fix(txt, s['name'])
         if not clean: return
         
         # EDITAR mensaje existente (paginación)
