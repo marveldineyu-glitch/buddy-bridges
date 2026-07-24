@@ -91,6 +91,8 @@ BRIDGES = [
 os.environ['PYTHONOPTIMIZE'] = '2'
 gc.set_threshold(5000, 50, 50)
 
+processed_msgs = set()
+
 class Bridge:
     def __init__(self, c):
         self.c = c
@@ -104,6 +106,7 @@ class Bridge:
         self.usr = TelegramClient(StringSession(c["session"]), API_ID, API_HASH, retry_delay=3, auto_reconnect=True, timeout=15)
 
     def clean(self):
+        if len(processed_msgs) > 500: processed_msgs.clear()
         now = time.time()
         for k in [k for k, v in self.sessions.items() if now - v.get('t', 0) > 300]: self.sessions.pop(k, None)
         if len(self.results) > 100:
@@ -182,6 +185,10 @@ class Bridge:
     async def on_new(self, event):
         self.clean()
         m = event.message
+        if m.id in processed_msgs:
+            processed_msgs.add(m.id)
+            return
+        processed_msgs.add(m.id)
         sid = self.c.get("source_id")
         if sid:
             if m.sender_id != sid: return
