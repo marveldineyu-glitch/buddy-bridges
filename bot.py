@@ -55,76 +55,78 @@ class Bridge:
         self.rl[uid].append(now)
         return True
 
-    def fix(self, txt, user_display_name=None):
+    def fix(self, txt):
         if not txt: return txt
-        # ELIMINAR Updates y enlaces de otros canales/bots
-        txt = re.sub(r'(?i).*Updates\s*:\s*@\w+.*', '', txt)
-        txt = re.sub(r'(?i).*Update\s*:\s*@\w+.*', '', txt)
-        txt = re.sub(r'(?i).*Channel\s*:\s*@\w+.*', '', txt)
-        txt = re.sub(r'(?i).*Canal\s*:\s*@\w+.*', '', txt)
-        txt = re.sub(r'(?i).*Grupo\s*:\s*@\w+.*', '', txt)
-        txt = re.sub(r'(?i).*Group\s*:\s*@\w+.*', '', txt)
-        txt = re.sub(r'(?i).*Únete\s*:\s*@\w+.*', '', txt)
-        txt = re.sub(r'(?i).*Join\s*:\s*@\w+.*', '', txt)
-        txt = re.sub(r'(?i).*Subscribe\s*:\s*@\w+.*', '', txt)
-        txt = re.sub(r'(?i).*Follow\s*:\s*@\w+.*', '', txt)
-        txt = re.sub(r'(?i).*Support\s*:\s*@\w+.*', '', txt)
+        
+        # ===== 0 PUBLICIDAD =====
+        # Eliminar líneas de publicidad/canales/bots externos
+        txt = re.sub(r'(?i).*Updates\s*:\s*@?\w+.*', '', txt)
+        txt = re.sub(r'(?i).*Update\s*:\s*@?\w+.*', '', txt)
+        txt = re.sub(r'(?i).*Channel\s*:\s*@?\w+.*', '', txt)
+        txt = re.sub(r'(?i).*Canal\s*:\s*@?\w+.*', '', txt)
+        txt = re.sub(r'(?i).*Grupo\s*:\s*@?\w+.*', '', txt)
+        txt = re.sub(r'(?i).*Group\s*:\s*@?\w+.*', '', txt)
+        txt = re.sub(r'(?i).*Únete\s*:\s*@?\w+.*', '', txt)
+        txt = re.sub(r'(?i).*Join\s*@?\w+.*', '', txt)
+        txt = re.sub(r'(?i).*Subscribe\s*:\s*@?\w+.*', '', txt)
+        txt = re.sub(r'(?i).*Follow\s*:\s*@?\w+.*', '', txt)
+        txt = re.sub(r'(?i).*Support\s*:\s*@?\w+.*', '', txt)
         txt = re.sub(r'(?i).*Movie\s*Hub.*', '', txt)
         txt = re.sub(r'(?i).*@MovieHubOtt.*', '', txt)
         txt = re.sub(r'(?i).*MovieHub.*', '', txt)
+        txt = re.sub(r'(?i).*@F5_FILMS.*', '', txt)
+        txt = re.sub(r'(?i).*@Apple_Movies\d+.*', '', txt)
+        txt = re.sub(r'(?i).*@\w+_FILMS.*', '', txt)
+        txt = re.sub(r'(?i).*@\w+_Movies\d+.*', '', txt)
         
-        # REEMPLAZAR el saludo genérico con el NOMBRE REAL del usuario (NO @username)
-        if user_display_name:
-            # Reemplazar "Hey **CualquierNombre**" con "Hey **NombreReal**"
-            txt = re.sub(r'(?i)Hey\s+\*\*.*?\*\*!?', f'👋 **{user_display_name}**', txt)
-            txt = re.sub(r'(?i)Hᴇʏ\s+\*\*.*?\*\*!?', f'👋 **{user_display_name}**', txt)
-            txt = re.sub(r'(?i)Hello\s+\*\*.*?\*\*!?', f'👋 **{user_display_name}**', txt)
-            txt = re.sub(r'(?i)Hi\s+\*\*.*?\*\*!?', f'👋 **{user_display_name}**', txt)
-            txt = re.sub(r'(?i)Hola\s+\*\*.*?\*\*!?', f'👋 **{user_display_name}**', txt)
+        # Eliminar cualquier @mencion que no sea oficial
+        txt = re.sub(r'@(?!BuddyMovies_official|BuddyMovies_Bot|BuddyMovies_canal)\w+', '', txt)
         
-        # Reemplazar menciones de otros bots/canales
+        # Reemplazar menciones oficiales
         txt = txt.replace("@TlgramMovieGroup_Bot", "@BuddyMovies_Bot")
         txt = txt.replace("@FILM_PARADIZE", "@BuddyMovies_official")
         txt = txt.replace("@RZXBOTZ", "@BuddyMovies_Bot")
         txt = txt.replace("@BuddyNotify_Bot", "@BuddyMovies_Bot")
         txt = txt.replace("@Peliculas_VIP_bot", "@BuddyMovies_Bot")
         
-        # Eliminar TODOS los @menciones que no sean los oficiales
-        txt = re.sub(r'@(?!BuddyMovies_official|BuddyMovies_Bot|BuddyMovies_canal)\w+', '', txt)
-        
-        # Eliminar enlaces http/https (solo permitir los de telegram oficiales)
+        # Eliminar enlaces externos
         txt = re.sub(r'https?://(?!t\.me/BuddyMovies)\S+', '', txt)
         
-        # Eliminar líneas de patrocinio/publicidad
-        txt = re.sub(r'(?i).*(auto.delete|copyright|save.the.file|will.be.deleted|this message|ᴛʜɪs ᴍᴇssᴀɢᴇ|here i found|Updates|patrocinado|sponsored|ad|anuncio).*', '', txt)
+        # Eliminar líneas de copyright/auto-delete
+        txt = re.sub(r'(?i).*(auto.delete|copyright|save.the.file|will.be.deleted|this message|ᴛʜɪs ᴍᴇssᴀɢᴇ|here i found|patrocinado|sponsored|ad|anuncio).*', '', txt)
         
         # Limpiar emojis de advertencia
         txt = re.sub(r'💭.*', '', txt)
         txt = re.sub(r'♻️.*', '', txt)
         txt = re.sub(r'⚠️.*', '', txt)
         
-        # Normalizar texto
+        # Normalizar saludo
+        txt = re.sub(r'(?i)(Hey|Hᴇʏ|Hello|Hi|Hola)\s+\*\*.*?\*\*!?', '👋 **¡Hola!**', txt)
         txt = txt.replace('Search Query:', '🔍 Búsqueda:').replace('Total Results:', '📊 Resultados:').replace('Page:', '📄 Página:')
         
         # Eliminar líneas vacías múltiples
-        txt = re.sub(r'\n\s*\n', '\n\n', txt)
+        txt = re.sub(r'\n\s*\n\s*\n', '\n\n', txt)
         
         return txt.strip()
 
     def btns(self, msg, oid=None):
         if not msg or not msg.buttons: return None
-        out, skip = [], ['compartir bot','añadir a grupo','menú principal','share bot','add to group','main menu',
-                         'updates','update channel','canal','grupo','join','subscribe','follow','support',
-                         'movie hub','moviehub','patrocinado','sponsored']
-        block_url = ['LfvtadGw','terabox','d-3RL7TJKnVlN2Nk','CM_Zone','f9RVIwfGDYo2NDM1']
+        out = []
+        skip_texts = ['compartir bot','añadir a grupo','menú principal','share bot','add to group','main menu',
+                      'updates','update channel','canal','grupo','join','subscribe','follow','support',
+                      'movie hub','moviehub','patrocinado','sponsored','f5 films','apple movies']
+        block_urls = ['LfvtadGw','terabox','d-3RL7TJKnVlN2Nk','CM_Zone','f9RVIwfGDYo2NDM1']
+        
         for row in msg.buttons:
             r = []
             for btn in row:
                 t = (btn.text or '').strip()
-                if any(s in t.lower() for s in skip) or 'erotic' in t.lower(): continue
+                # Saltar botones de publicidad
+                if any(s in t.lower() for s in skip_texts) or 'erotic' in t.lower(): continue
                 
                 if btn.url:
-                    if any(b in (btn.url or '') for b in block_url): continue
+                    if any(b in (btn.url or '') for b in block_urls): continue
+                    # Bloquear enlaces a otros canales
                     if 't.me/' in btn.url and not any(x in btn.url for x in ['BuddyMovies', 'buddy']): continue
                     
                     if self.c["n"]=="B5" and 'start=' in btn.url:
@@ -172,12 +174,12 @@ class Bridge:
         if not self.sessions: return
         uid = list(self.sessions.keys())[-1]
         s = self.sessions[uid]
-        name = s['name']  # Este es el first_name del usuario, NO @username
+        name = s['name']
 
         if self.c["n"]=="B6" and self.pending and m.media and not m.photo:
             puid, pname, prid = self.pending
             self.pending = None
-            cap = self.fix(txt, name) + "\n\n❤️ @BuddyMovies_Bot"
+            cap = self.fix(txt) + "\n\n❤️ @BuddyMovies_Bot"
             sent = await self.usr.send_file(CANAL, m.media, caption=cap)
             link = f"https://t.me/{CANAL[1:]}/{sent.id}"
             await self.bot.send_message(GRUPO, f"🎬 **{pname}**\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=prid)
@@ -185,7 +187,7 @@ class Bridge:
 
         if self.c["n"]=="B6" and m.photo and m.buttons:
             path = await m.download_media()
-            tclean = self.fix(m.text or "Sin descripción", name)
+            tclean = self.fix(m.text or "Sin descripción")
             b = self.btns(m)
             await self.bot.send_file(GRUPO, path, caption=tclean[:1000], buttons=b, reply_to=s['rid'])
             try: os.unlink(path)
@@ -193,7 +195,7 @@ class Bridge:
             return
 
         if m.media:
-            raw = self.fix(txt, name) + FOOTER
+            raw = self.fix(txt) + FOOTER
             sent = await self.usr.send_file(CANAL, m.media, caption=raw)
             link = f"https://t.me/{CANAL[1:]}/{sent.id}"
             title = raw.split('\n')[0][:80] if raw else "Archivo"
@@ -201,7 +203,7 @@ class Bridge:
             return
 
         if txt and m.buttons and len(txt) > 15:
-            clean = self.fix(txt, name)
+            clean = self.fix(txt)
             if not clean: return
             
             if m.id in self.sr:
@@ -228,15 +230,7 @@ class Bridge:
         txt = m.text or ''
         if any(x in txt.lower() for x in ['buscando','espera','procesando','please wait']): return
         if not txt or not m.buttons: return
-        
-        # Obtener el nombre del usuario que hizo la búsqueda
-        user_display_name = None
-        if self.sessions:
-            uid = list(self.sessions.keys())[-1]
-            s = self.sessions[uid]
-            user_display_name = s['name']  # first_name del usuario
-        
-        clean = self.fix(txt, user_display_name)
+        clean = self.fix(txt)
         if not clean: return
 
         if m.id in self.sr:
@@ -272,22 +266,11 @@ class Bridge:
         q = event.text.strip()
         if len(q) < 2 or q.startswith("/"): return
         if not self.ok(event.sender_id): return
-        
-        # Obtener el NOMBRE REAL del usuario (first_name), NO el @username
-        try:
-            sender = await event.get_sender()
-            first_name = sender.first_name or "Usuario"
-            display_name = first_name  # Solo usamos el first_name
-        except:
-            display_name = "Usuario"
-        
-        self.sessions[event.sender_id] = {
-            'name': display_name,  # Guardamos el first_name
-            'rid': event.message.id,
-            't': time.time()
-        }
+        try: name = (await event.get_sender()).first_name or "Usuario"
+        except: name = "Usuario"
+        self.sessions[event.sender_id] = {'name': name, 'rid': event.message.id, 't': time.time()}
         self.bmap.clear()
-        if self.c.get("gpt"): self.queue.append((event.sender_id, display_name, event.message.id))
+        if self.c.get("gpt"): self.queue.append((event.sender_id, name, event.message.id))
         await self.usr.send_message(self.c["src"], f"{self.c.get('pre','')}{q}")
 
     async def on_click(self, event):
@@ -336,7 +319,7 @@ class Bridge:
             except: pass
 
 async def main():
-    print(f"🚀 {len(BRIDGES)} bridges")
+    print(f"🚀 {len(BRIDGES)} bridges - 0 PUBLICIDAD")
     await asyncio.gather(*[Bridge(c).start() for c in BRIDGES])
 
 class H(BaseHTTPRequestHandler):
