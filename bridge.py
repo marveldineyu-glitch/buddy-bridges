@@ -1,21 +1,257 @@
-import asyncio, os, threading, time, urllib.request
+import asyncio, re, os, threading, gc, time, urllib.request
+from collections import OrderedDict, deque
+from telethon import TelegramClient, events, Button
+from telethon.sessions import StringSession
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import parse_qs, urlparse
+
+API_ID = 28074212
+API_HASH = "b18dae908474a377684922f3e9d5b795"
+SESSION = "1AZWarzMBuySWi9yMDi6czcZfBDTzaKK3BDAlidU1GSz-nFSaeCpW5SGGb16ga5yYTzCYng9LqSjkL_o2ijHJ69OjJfGcd2i6zM3qcG5O6mG03ommmMXEvJX7HTz0aXtlyR_RCda2SOJf6tq1_GaCdcQBylFdnYcpDl08LZoey8xnZil0afhD1IjFpghUIC1Iha4qoGdZ-D-PFxZfDP2F5tBN0mtouIlxachP4D2jtoprgoqNV53k7HO_WK4opkpQa6EXz0CHGtQsDk1Tj5xwWAL4CVA00YNetysKLCj1rtg4vk5NqY4mx7ZeOcD_2ZmBbS5nMkVc2OvVmprh81ijv4IoN2BaDrU="
+CANAL = "@BuddyMovies_canal"
+GRUPO = "@BuddyMovies_official"
+
+BRIDGES = [
+    {"name":"B1_BuddyMovies","token":"8984212389:AAFZMh_ZQZm8DlIqPLvQEljnC1UPVtRJV-Q","source":"@pooppuuui","sid":None,"prefix":"/search "},
+    {"name":"B2_BuddyNotify","token":"8463069047:AAGeZg0IQd-1-Mv3ubxqnwZY1oJgxio9hr8","source":"@TlgramMovieSearch_Bot","sid":None,"prefix":""},
+    {"name":"B3_AutoFilter","token":"7690330806:AAFAemkor12n71UAPaoJcnAcnPI_R_Xqygs","source":"@AutoFilter_Robot","sid":None,"prefix":""},
+    {"name":"B4_LtMovie","token":"8808014809:AAEacf05HWO2g4HFWDTlP8IC6lXMBxILqbM","source":"@Lt_Moviebot","sid":8504453537,"prefix":""},
+    {"name":"B5_Angela","token":"8894814453:AAGAuF3cjETqYt_mY2os9raZgMxSZtFqD_E","source":"@Angela2_moviebot","sid":8143714699,"prefix":""},
+    {"name":"B6_Apple","token":"8760379291:AAHHIOGgqTJT0IINcM4dNV2bOYDXHfV0r7I","source":"@Apple_moviebot","sid":8104769075,"prefix":""},
+    {"name":"B7_ChatGPT","token":"8952066629:AAHLnoIl62kY0wf4XrFWKiiDq9UaNbjk9zE","source":"@gpt3ru_chat_bot","sid":6157862059,"prefix":"","gpt":True}
+]
+
+os.environ['PYTHONOPTIMIZE'] = '2'
+gc.set_threshold(5000, 50, 50)
+
+class Bridge:
+    def __init__(self, c, usr_client):
+        self.c = c
+        self.usr = usr_client  # COMPARTIDO
+        self.last_uid = None
+        self.last_name = None
+        self.last_rid = None
+        self.last_msg_id = None
+        self.queue = deque()
+        self.bmap = {}
+        self.rl = {}
+        self.pending = None
+        self._sent = set()
+        
+        self.bot = TelegramClient(f'b_{c["name"]}', API_ID, API_HASH, retry_delay=3, auto_reconnect=True, timeout=15)
+
+    def clean(self):
+        if len(self._sent) > 200: self._sent.clear()
+        if len(self.bmap) > 3000:
+            for k in list(self.bmap.keys())[:1500]: del self.bmap[k]
+        gc.collect()
+
+    def ok(self, uid):
+        now = time.time()
+        if uid in self.rl:
+            self.rl[uid] = [t for t in self.rl[uid] if now - t < 60]
+            if len(self.rl[uid]) >= 10: return False
+        else: self.rl[uid] = []
+        self.rl[uid].append(now)
+        return True
+
+    def fix(self, txt):
+        if not txt: return ""
+        txt = re.sub(r'https?://\S+', '', txt)
+        txt = re.sub(r'@\w+', '', txt)
+        txt = re.sub(r'(?i).*(update|auto.delete|copyright|save.the.file|will.be.deleted|join.|share.bot).*', '', txt)
+        txt = re.sub(r'Hey \*\*.*?\*\*!?', '', txt)
+        txt = txt.replace('Search Query:','🔍').replace('Total Results:','📊').replace('Page:','📄')
+        txt = re.sub(r'\n\s*\n\s*\n', '\n\n', txt)
+        return txt.strip()
+
+    def btns(self, msg):
+        if not msg or not msg.buttons: return None
+        out, block = [], ['terabox','LfvtadGw','CM_Zone']
+        skip = ['compartir bot','añadir a grupo','menú principal','share bot','add to group','main menu']
+        for row in msg.buttons:
+            r = []
+            for btn in row:
+                t = (btn.text or '').strip()
+                if t.lower() in skip: continue
+                if btn.url:
+                    if any(b in (btn.url or '') for b in block): continue
+                    if self.c["name"]=="B5_Angela" and 'start=' in btn.url:
+                        sd = parse_qs(urlparse(btn.url).query).get('start',[''])[0]
+                        if sd:
+                            fd = f"s_{sd[:30]}"
+                            self.bmap[fd] = (msg.id, msg.buttons.index(row), row.index(btn), sd)
+                            r.append(Button.inline(t[:50] or '📥', fd))
+                        continue
+                    if self.c["name"] in ["B4_LtMovie","B5_Angela","B6_Apple"]: continue
+                    r.append(Button.url(t[:50], btn.url))
+                elif btn.data:
+                    d = btn.data.decode() if isinstance(btn.data, bytes) else btn.data
+                    self.bmap[d] = (msg.id, msg.buttons.index(row), row.index(btn), None)
+                    if t in ['\u200b','\u200b ']:
+                        ds = str(btn.data)
+                        t = '🌐' if 'lang' in ds else '🎞️' if 'qual' in ds else '▶️' if 'next' in ds or 'nxt' in ds else '📄' if 'pgkb' in ds else '▫️'
+                    r.append(Button.inline(t[:50] or '📥', d[:64]))
+            if r: out.append(r)
+        return out or None
+
+    async def send_or_edit(self, msg, is_edit=False):
+        if msg.id in self._sent: return
+        self._sent.add(msg.id)
+        txt = msg.text or ''
+        
+        # ChatGPT
+        if self.c.get("gpt"):
+            if self.queue and txt:
+                _, name, rid = self.queue.popleft()
+                await self.bot.send_message(GRUPO, f"🤖 **{name}:**\n\n{self.fix(txt)[:2000]}", reply_to=rid)
+            return
+        
+        if not self.last_uid: return
+        
+        # Apple pending
+        if self.c["name"]=="B6_Apple" and self.pending and msg.media and not msg.photo:
+            uid, name, rid = self.pending
+            self.pending = None
+            cap = self.fix(txt) + "\n\n❤️ @BuddyMovies_Bot"
+            sent = await self.usr.send_file(CANAL, msg.media, caption=cap)
+            link = f"https://t.me/{CANAL[1:]}/{sent.id}"
+            await self.bot.send_message(GRUPO, f"🎬 **{name}**\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=rid)
+            return
+        
+        # Archivo
+        if msg.media:
+            raw = self.fix(txt)
+            if self.c["name"] in ["B4_LtMovie","B5_Angela"]: raw += f"\n\n➠ @BuddyMovies_official\n➠ @BuddyMovies_Bot"
+            elif self.c["name"]=="B6_Apple": raw += "\n\n❤️ @BuddyMovies_Bot"
+            sent = await self.usr.send_file(CANAL, msg.media, caption=raw)
+            link = f"https://t.me/{CANAL[1:]}/{sent.id}"
+            title = raw.split('\n')[0][:80] if raw else "Archivo"
+            await self.bot.send_message(GRUPO, f"🎬 **{self.last_name}**\n📁 {title}\n\n🔗 {link}", buttons=[[Button.url("🎥 VER CONTENIDO", link)]], reply_to=self.last_rid, link_preview=False)
+            return
+        
+        # Texto con botones
+        if txt and msg.buttons:
+            clean = self.fix(txt)
+            if not clean: return
+            b = self.btns(msg)
+            
+            if is_edit and self.last_msg_id:
+                try:
+                    await self.bot.edit_message(GRUPO, self.last_msg_id, clean[:4000], buttons=b)
+                    return
+                except: pass
+            
+            sent = await self.bot.send_message(GRUPO, clean[:4000], buttons=b, reply_to=self.last_rid)
+            self.last_msg_id = sent.id
+
+    async def handle_new(self, event):
+        self.clean()
+        m = event.message
+        sid = self.c.get("sid")
+        if sid and m.sender_id != sid: return
+        if not sid and (not m.sender or not m.sender.bot): return
+        txt = m.text or ''
+        if any(x in txt.lower() for x in ['buscando','espera','recuerda','ayúdanos','compártelo','gracias','procesando','maldito','comparte','revisa','save the file','will be deleted','select language','please wait']): return
+        if re.search(r'no\s+(se\s+encontr|results?|found|available)', txt, re.IGNORECASE): return
+        await self.send_or_edit(m, is_edit=False)
+
+    async def handle_edit(self, event):
+        self.clean()
+        m = event.message
+        sid = self.c.get("sid")
+        if sid and m.sender_id != sid: return
+        if not sid and (not m.sender or not m.sender.bot or not m.text): return
+        txt = m.text or ''
+        if any(x in txt.lower() for x in ['buscando','espera','procesando','please wait']): return
+        if re.search(r'no\s+(se\s+encontr|results?|found|available)', txt, re.IGNORECASE): return
+        if not txt or not m.buttons: return
+        await self.send_or_edit(m, is_edit=True)
+
+    async def handle_msg(self, event):
+        self.clean()
+        if event.is_private:
+            await event.reply("🎬 <b>¡BuddyPelis!</b>\n\n📽️ <b>+5 millones de películas y series</b>\n🔍 Busca sin límites en el grupo\n\n👉 <b>Únete:</b> @BuddyMovies_official", buttons=[[Button.url("🎥 IR AL GRUPO", "https://t.me/BuddyMovies_official")]], link_preview=False)
+            return
+        if event.out or not event.text: return
+        q = event.text.strip()
+        if len(q) < 2 or q.startswith("/"): return
+        if not self.ok(event.sender_id): return
+        try: name = (await event.get_sender()).first_name or "Usuario"
+        except: name = "Usuario"
+        self.last_uid = event.sender_id
+        self.last_name = name
+        self.last_rid = event.message.id
+        self.last_msg_id = None
+        self._sent.clear()
+        if self.c.get("gpt"): self.queue.append((event.sender_id, name, event.message.id))
+        await self.usr.send_message(self.c["source"], f"{self.c.get('prefix','')}{q}")
+
+    async def handle_click(self, event):
+        data = event.data.decode() if isinstance(event.data, bytes) else event.data
+        if not data: return
+        if data in self.bmap:
+            info = self.bmap[data]
+            if len(info) > 3 and info[3]:
+                await event.answer("⚡")
+                await self.usr.send_message(self.c["source"], f"/start {info[3]}")
+                return
+            if self.c["name"]=="B6_Apple" and self.last_uid:
+                self.pending = (self.last_uid, self.last_name, self.last_rid)
+            try:
+                msgs = await self.usr.get_messages(self.c["source"], ids=[info[0]])
+                if msgs and msgs[0].buttons:
+                    await event.answer("⚡")
+                    await msgs[0].buttons[info[1]][info[2]].click()
+                    return
+            except: pass
+        # fallback
+        try:
+            async for m in self.usr.iter_messages(self.c["source"], limit=50):
+                if m.buttons:
+                    for ri, row in enumerate(m.buttons):
+                        for bi, btn in enumerate(row):
+                            bd = btn.data.decode() if isinstance(btn.data, bytes) else btn.data
+                            if bd == data:
+                                self.bmap[data] = (m.id, ri, bi, None)
+                                await event.answer("⚡"); await btn.click(); return
+        except: pass
+        await event.answer("⏳ Expiró")
+
+    async def start(self):
+        await self.bot.start(bot_token=self.c["token"])
+        self.usr.add_event_handler(self.handle_new, events.NewMessage(chats=self.c["source"]))
+        self.usr.add_event_handler(self.handle_edit, events.MessageEdited(chats=self.c["source"]))
+        self.bot.add_event_handler(self.handle_msg, events.NewMessage)
+        self.bot.add_event_handler(self.handle_click, events.CallbackQuery)
+        print(f"✅ {self.c['name']} listo")
 
 async def main():
-    scripts = [
-        "bridge_b1.py", "bridge_b2.py", "bridge_b3.py", "bridge_b4.py",
-        "bridge_b5.py", "bridge_b6.py", "bridge_b7.py"
-    ]
-    processes = []
-    for s in scripts:
-        p = await asyncio.create_subprocess_exec("python3", s)
-        processes.append(p)
-        print(f"✅ {s} iniciado")
+    print(f"🚀 Iniciando {len(BRIDGES)} bridges...")
     
-    await asyncio.gather(*[p.wait() for p in processes])
+    # UN SOLO cliente usuario para todos
+    usr = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
+    await usr.start()
+    print("✅ Sesión de usuario conectada")
+    
+    bridges = [Bridge(c, usr) for c in BRIDGES]
+    
+    # Iniciar todos los bots
+    await asyncio.gather(*[b.start() for b in bridges])
+    
+    # Heartbeat
+    async def hb():
+        while True:
+            await asyncio.sleep(180)
+            try: await usr.get_me()
+            except: pass
+    asyncio.create_task(hb())
+    
+    await asyncio.Event().wait()
 
 class H(BaseHTTPRequestHandler):
     def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
+    def log_message(self, *a): pass
 
 threading.Thread(target=lambda: HTTPServer(("0.0.0.0", int(os.environ.get("PORT",10000))), H).serve_forever(), daemon=True).start()
 
