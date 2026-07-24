@@ -1,3 +1,4 @@
+import sys; print("V2024-07-24-ANTIDUPLICADOS", flush=True)
 import asyncio, re, os, threading, gc, time, urllib.request, hashlib
 from collections import deque
 from telethon import TelegramClient, events, Button
