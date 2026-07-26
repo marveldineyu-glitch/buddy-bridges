@@ -11,3 +11,5 @@ jobs:
     steps:
       - name: Ping buddy-bridges
         run: curl -s https://buddy-bridges.onrender.com
+      - name: Ping gpt-mabu205
+        run: curl -s https://gpt-mabu205-1.onrender.com
